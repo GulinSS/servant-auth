@@ -33,10 +33,10 @@ type family AddSetCookieApiVerb a where
 
 #if MIN_VERSION_servant_server(0,18,2)
 type family AddSetCookieApiUVerb a where
---  AddSetCookieApiUVerb (WithStatus n (Headers (Header "Set-Cookie" SetCookie ': ls) a)) = WithStatus n (Headers (Header "Set-Cookie" SetCookie ': ls) a)
+  AddSetCookieApiUVerb (WithStatus n (Headers (Header "Set-Cookie" SetCookie ': ls) a)) = WithStatus n (Headers (Header "Set-Cookie" SetCookie ': ls) a)
   AddSetCookieApiUVerb (WithStatus n (Headers ls a)) = WithStatus n (Headers (Header "Set-Cookie" SetCookie ': ls) a)
   AddSetCookieApiUVerb (WithStatus n a) = WithStatus n (Headers '[Header "Set-Cookie" SetCookie] a)
---  AddSetCookieApiUVerb (Headers (Header "Set-Cookie" SetCookie ': ls) a) = Headers (Header "Set-Cookie" SetCookie ': ls) a
+  AddSetCookieApiUVerb (Headers (Header "Set-Cookie" SetCookie ': ls) a) = Headers (Header "Set-Cookie" SetCookie ': ls) a
   AddSetCookieApiUVerb (Headers ls a) = Headers (Header "Set-Cookie" SetCookie ': ls) a
   AddSetCookieApiUVerb a = Headers '[Header "Set-Cookie" SetCookie] a
 
@@ -86,10 +86,11 @@ instance {-# OVERLAPPABLE #-}
       Just cookie -> addHeader cookie <$> addSetCookies rest oldVal
 
 #if MIN_VERSION_servant_server(0,18,2)
-instance {-# OVERLAPPING #-}
+{-instance {-# OVERLAPPING #-}
   newA ~ AddSetCookieApiUVerbMap oldA =>
   AddSetCookies ('S n) (m (Union oldA)) (m (Union newA)) where
   addSetCookies = undefined
+-}
 #endif
 
 instance {-# OVERLAPS #-}
