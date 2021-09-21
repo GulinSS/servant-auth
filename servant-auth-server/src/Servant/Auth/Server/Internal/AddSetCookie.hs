@@ -31,11 +31,29 @@ type family AddSetCookieApiVerb a where
   AddSetCookieApiVerb (Headers ls a) = Headers (Header "Set-Cookie" SetCookie ': ls) a
   AddSetCookieApiVerb a = Headers '[Header "Set-Cookie" SetCookie] a
 
+#if MIN_VERSION_servant_server(0,18,2)
+type family AddSetCookieApiUVerb a where
+--  AddSetCookieApiUVerb (WithStatus n (Headers (Header "Set-Cookie" SetCookie ': ls) a)) = WithStatus n (Headers (Header "Set-Cookie" SetCookie ': ls) a)
+  AddSetCookieApiUVerb (WithStatus n (Headers ls a)) = WithStatus n (Headers (Header "Set-Cookie" SetCookie ': ls) a)
+  AddSetCookieApiUVerb (WithStatus n a) = WithStatus n (Headers '[Header "Set-Cookie" SetCookie] a)
+--  AddSetCookieApiUVerb (Headers (Header "Set-Cookie" SetCookie ': ls) a) = Headers (Header "Set-Cookie" SetCookie ': ls) a
+  AddSetCookieApiUVerb (Headers ls a) = Headers (Header "Set-Cookie" SetCookie ': ls) a
+  AddSetCookieApiUVerb a = Headers '[Header "Set-Cookie" SetCookie] a
+
+type family AddSetCookieApiUVerbMap a where
+  AddSetCookieApiUVerbMap '[] = '[]
+  AddSetCookieApiUVerbMap (a:as) = AddSetCookieApiUVerb a : AddSetCookieApiUVerbMap as
+#endif
+
 type family AddSetCookieApi a :: *
 type instance AddSetCookieApi (a :> b) = a :> AddSetCookieApi b
 type instance AddSetCookieApi (a :<|> b) = AddSetCookieApi a :<|> AddSetCookieApi b
 type instance AddSetCookieApi (Verb method stat ctyps a)
   = Verb method stat ctyps (AddSetCookieApiVerb a)
+#if MIN_VERSION_servant_server(0,18,2)
+type instance AddSetCookieApi (UVerb method ctyps a)
+    = UVerb method ctyps (AddSetCookieApiUVerbMap a)
+#endif
 type instance AddSetCookieApi Raw = Raw
 #if MIN_VERSION_servant_server(0,15,0)
 type instance AddSetCookieApi (Stream method stat framing ctyps a)
@@ -66,6 +84,13 @@ instance {-# OVERLAPPABLE #-}
     case mCookie of
       Nothing -> noHeader <$> addSetCookies rest oldVal
       Just cookie -> addHeader cookie <$> addSetCookies rest oldVal
+
+#if MIN_VERSION_servant_server(0,18,2)
+instance {-# OVERLAPPING #-}
+  newA ~ AddSetCookieApiUVerbMap oldA =>
+  AddSetCookies ('S n) (m (Union oldA)) (m (Union newA)) where
+  addSetCookies = undefined
+#endif
 
 instance {-# OVERLAPS #-}
   (AddSetCookies ('S n) a a', AddSetCookies ('S n) b b')

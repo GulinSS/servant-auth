@@ -416,11 +416,29 @@ type API auths
       :<|> "logout" :> Get '[JSON] (Headers '[ Header "Set-Cookie" SetCookie
                                              , Header "Set-Cookie" SetCookie ] NoContent)
 
+#if MIN_VERSION_servant_server(0,18,2)
+type APIUVerb auths
+    = Auth auths User :>
+        ( UVerb 'GET '[JSON] '[Int]
+--       :<|> ReqBody '[JSON] Int :> UVerb 'POST '[JSON] '[Int]
+--       :<|> "header" :> UVerb 'GET '[JSON] '[(Headers '[Header "Blah" Int] Int)]
+        )
+--      :<|> "login" :> ReqBody '[JSON] User :> UVerb 'POST '[JSON] '[(Headers '[ Header "Set-Cookie" SetCookie
+--                                                                              , Header "Set-Cookie" SetCookie ] NoContent)]
+--      :<|> "logout" :> UVerb 'GET '[JSON] '[(Headers '[ Header "Set-Cookie" SetCookie
+--                                                      , Header "Set-Cookie" SetCookie ] NoContent)]
+#endif
+
 jwtOnlyApi :: Proxy (API '[Servant.Auth.Server.JWT])
 jwtOnlyApi = Proxy
 
 cookieOnlyApi :: Proxy (API '[Cookie])
 cookieOnlyApi = Proxy
+
+#if MIN_VERSION_servant_server(0,18,2)
+cookieOnlyApiUVerb :: Proxy (APIUVerb '[Cookie])
+cookieOnlyApiUVerb = Proxy
+#endif
 
 basicAuthApi :: Proxy (API '[BasicAuth])
 basicAuthApi = Proxy
@@ -466,10 +484,24 @@ appWithCookie api ccfg = serveWithContext api ctx $ server ccfg
   where
     ctx = ccfg :. jwtCfg :. theKey :. EmptyContext
 
+#if MIN_VERSION_servant_server(0,18,2)
+appWithCookieUVerb :: AreAuths auths '[CookieSettings, JWTSettings, JWK] User
+  => Proxy (APIUVerb auths) -> CookieSettings -> Application
+appWithCookieUVerb api ccfg = serveWithContext api ctx $ serverUVerb ccfg
+  where
+    ctx = ccfg :. jwtCfg :. theKey :. EmptyContext
+#endif
+
 -- | Takes a proxy parameter indicating which authentication systems to enable.
 app :: AreAuths auths '[CookieSettings, JWTSettings, JWK] User
   => Proxy (API auths) -> Application
 app api = appWithCookie api cookieCfg
+
+#if MIN_VERSION_servant_server(0,18,2)
+appUVerb :: AreAuths auths '[CookieSettings, JWTSettings, JWK] User
+  => Proxy (APIUVerb auths) -> Application
+appUVerb api = appWithCookieUVerb api cookieCfg
+#endif
 
 server :: CookieSettings -> Server (API auths)
 server ccfg =
@@ -515,6 +547,41 @@ server ccfg =
 #endif
       \_req respond ->
         respond $ responseLBS status200 [("hi", "there")] "how are you?"
+
+#if MIN_VERSION_servant_server(0,18,2)
+serverUVerb :: CookieSettings -> Server (APIUVerb auths)
+serverUVerb ccfg =
+    (\authResult -> case authResult of
+        Authenticated usr -> getInt usr
+--                        :<|> postInt usr
+--                        :<|> getHeaderInt
+        Indefinite -> throwAll err401
+        _ -> throwAll err403
+    )
+--    :<|> getLogin
+--    :<|> getLogout
+  where
+    getInt :: User -> Handler (Union '[Int])
+    getInt usr = respond . length $ name usr
+
+    postInt :: User -> Int -> Handler (Union '[Int])
+    postInt _ = respond
+
+    getHeaderInt :: Handler (Union '[Headers '[Header "Blah" Int] Int])
+    getHeaderInt = respond $ addHeader 1797 17
+
+    getLogin :: User -> Handler (Union '[Headers '[ Header "Set-Cookie" SetCookie
+                                                  , Header "Set-Cookie" SetCookie ] NoContent])
+    getLogin user = do
+        maybeApplyCookies <- liftIO $ acceptLogin ccfg jwtCfg user
+        case maybeApplyCookies of
+          Just applyCookies -> respond $ applyCookies NoContent
+          Nothing -> error "cookies failed to apply"
+
+    getLogout :: Handler (Union '[Headers '[ Header "Set-Cookie" SetCookie
+                                           , Header "Set-Cookie" SetCookie ] NoContent])
+    getLogout = respond $ clearSession ccfg NoContent
+#endif
 
 -- }}}
 ------------------------------------------------------------------------------
