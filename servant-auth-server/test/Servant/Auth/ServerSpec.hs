@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE CPP #-}
 module Servant.Auth.ServerSpec (spec) where
 
@@ -70,14 +71,19 @@ spec = do
   jwtAuthSpec
   throwAllSpec
   basicAuthSpec
+  where
+    authSpec = mkAuthSpec (app jwtAndCookieApi) -- >> mkAuthSpec (appUVerb jwtAndCookieApiUVerb)
+    cookieAuthSpec = mkCookieAuthSpec (app cookieOnlyApi) -- >> mkCookieAuthSpec (appUVerb cookieOnlyApiUVerb)
+    jwtAuthSpec = mkJwtAuthSpec (app jwtOnlyApi) -- >> mkJwtAuthSpec (appUVerb jwtOnlyApiUVerb)
+    basicAuthSpec = mkBasicAuthSpec (app basicAuthApi) -- >> mkBasicAuthSpec (appUVerb basicAuthApiUVerb)
 
 ------------------------------------------------------------------------------
 -- * Auth {{{
 
-authSpec :: Spec
-authSpec
+mkAuthSpec :: Application -> Spec
+mkAuthSpec mkApp
   = describe "The Auth combinator"
-  $ around (testWithApplication . return $ app jwtAndCookieApi) $ do
+  $ around (testWithApplication . return $ mkApp) $ do
 
   it "returns a 401 if all authentications are Indefinite" $ \port -> do
     get (url port) `shouldHTTPErrorWith` status401
@@ -165,11 +171,11 @@ authSpec
 ------------------------------------------------------------------------------
 -- * Cookie Auth {{{
 
-cookieAuthSpec :: Spec
-cookieAuthSpec
+mkCookieAuthSpec :: Application -> Spec
+mkCookieAuthSpec mkApp
   = describe "The Auth combinator" $ do
       describe "With XSRF check" $
-       around (testWithApplication . return $ app cookieOnlyApi) $ do
+       around (testWithApplication . return $ mkApp) $ do
 
         it "fails if XSRF header and cookie don't match" $ \port -> property
                                                          $ \(user :: User) -> do
@@ -294,10 +300,10 @@ cookieAuthSpec
 ------------------------------------------------------------------------------
 -- * JWT Auth {{{
 
-jwtAuthSpec :: Spec
-jwtAuthSpec
+mkJwtAuthSpec :: Application -> Spec
+mkJwtAuthSpec mkApp
   = describe "The JWT combinator"
-  $ around (testWithApplication . return $ app jwtOnlyApi) $ do
+  $ around (testWithApplication . return $ mkApp) $ do
 
   it "fails if 'aud' does not match predicate" $ \port -> property $
                                                 \(user :: User) -> do
@@ -360,9 +366,9 @@ jwtAuthSpec
 ------------------------------------------------------------------------------
 -- * Basic Auth {{{
 
-basicAuthSpec :: Spec
-basicAuthSpec = describe "The BasicAuth combinator"
-  $ around (testWithApplication . return $ app basicAuthApi) $ do
+mkBasicAuthSpec :: Application -> Spec
+mkBasicAuthSpec mkApp = describe "The BasicAuth combinator"
+  $ around (testWithApplication . return $ mkApp) $ do
 
   it "succeeds with the correct password and username" $ \port -> do
     resp <- getWith (defaults & auth ?~ basicAuth "ali" "Open sesame") (url port)
@@ -419,8 +425,8 @@ type API auths
 #if MIN_VERSION_servant_server(0,18,2)
 type APIUVerb auths
     = Auth auths User :>
-        ( UVerb 'GET '[JSON] '[Int]
---       :<|> ReqBody '[JSON] Int :> UVerb 'POST '[JSON] '[Int]
+        ( UVerb 'GET '[JSON] '[IntResponse]
+       :<|> ReqBody '[JSON] Int :> UVerb 'POST '[JSON] '[IntResponse]
 --       :<|> "header" :> UVerb 'GET '[JSON] '[(Headers '[Header "Blah" Int] Int)]
         )
 --      :<|> "login" :> ReqBody '[JSON] User :> UVerb 'POST '[JSON] '[(Headers '[ Header "Set-Cookie" SetCookie
@@ -431,6 +437,11 @@ type APIUVerb auths
 
 jwtOnlyApi :: Proxy (API '[Servant.Auth.Server.JWT])
 jwtOnlyApi = Proxy
+
+#if MIN_VERSION_servant_server(0,18,2)
+jwtOnlyApiUVerb :: Proxy (APIUVerb '[Servant.Auth.Server.JWT])
+jwtOnlyApiUVerb = Proxy
+#endif
 
 cookieOnlyApi :: Proxy (API '[Cookie])
 cookieOnlyApi = Proxy
@@ -443,13 +454,22 @@ cookieOnlyApiUVerb = Proxy
 basicAuthApi :: Proxy (API '[BasicAuth])
 basicAuthApi = Proxy
 
+#if MIN_VERSION_servant_server(0,18,2)
+basicAuthApiUVerb :: Proxy (APIUVerb '[BasicAuth])
+basicAuthApiUVerb = Proxy
+#endif
+
 jwtAndCookieApi :: Proxy (API '[Servant.Auth.Server.JWT, Cookie])
 jwtAndCookieApi = Proxy
+
+#if MIN_VERSION_servant_server(0,18,2)
+jwtAndCookieApiUVerb :: Proxy (APIUVerb '[Servant.Auth.Server.JWT, Cookie])
+jwtAndCookieApiUVerb = Proxy
+#endif
 
 theKey :: JWK
 theKey = unsafePerformIO . genJWK $ OctGenParam 256
 {-# NOINLINE theKey #-}
-
 
 cookieCfg :: CookieSettings
 cookieCfg = def
@@ -478,18 +498,24 @@ instance FromBasicAuthData User where
 -- have to add it
 type instance BasicAuthCfg = JWK
 
-appWithCookie :: AreAuths auths '[CookieSettings, JWTSettings, JWK] User
+appWithCookie
+  :: (AreAuths auths '[CookieSettings, JWTSettings, JWK] User)
   => Proxy (API auths) -> CookieSettings -> Application
 appWithCookie api ccfg = serveWithContext api ctx $ server ccfg
   where
     ctx = ccfg :. jwtCfg :. theKey :. EmptyContext
 
 #if MIN_VERSION_servant_server(0,18,2)
-appWithCookieUVerb :: AreAuths auths '[CookieSettings, JWTSettings, JWK] User
+{-
+appWithCookieUVerb
+  :: ( AreAuths auths '[CookieSettings, JWTSettings, JWK] User
+     )
   => Proxy (APIUVerb auths) -> CookieSettings -> Application
+-}
 appWithCookieUVerb api ccfg = serveWithContext api ctx $ serverUVerb ccfg
   where
     ctx = ccfg :. jwtCfg :. theKey :. EmptyContext
+
 #endif
 
 -- | Takes a proxy parameter indicating which authentication systems to enable.
@@ -498,8 +524,6 @@ app :: AreAuths auths '[CookieSettings, JWTSettings, JWK] User
 app api = appWithCookie api cookieCfg
 
 #if MIN_VERSION_servant_server(0,18,2)
-appUVerb :: AreAuths auths '[CookieSettings, JWTSettings, JWK] User
-  => Proxy (APIUVerb auths) -> Application
 appUVerb api = appWithCookieUVerb api cookieCfg
 #endif
 
@@ -548,12 +572,19 @@ server ccfg =
       \_req respond ->
         respond $ responseLBS status200 [("hi", "there")] "how are you?"
 
+newtype IntResponse = IntResponse Int
+  deriving Generic
+
+instance ToJSON IntResponse
+instance HasStatus IntResponse where
+  type StatusOf IntResponse = 200
+
 #if MIN_VERSION_servant_server(0,18,2)
 serverUVerb :: CookieSettings -> Server (APIUVerb auths)
 serverUVerb ccfg =
     (\authResult -> case authResult of
         Authenticated usr -> getInt usr
---                        :<|> postInt usr
+                        :<|> postInt usr
 --                        :<|> getHeaderInt
         Indefinite -> throwAll err401
         _ -> throwAll err403
@@ -561,26 +592,26 @@ serverUVerb ccfg =
 --    :<|> getLogin
 --    :<|> getLogout
   where
-    getInt :: User -> Handler (Union '[Int])
-    getInt usr = respond . length $ name usr
+    getInt :: User -> Handler (Union '[IntResponse])
+    getInt usr = respond . IntResponse . length $ name usr
 
-    postInt :: User -> Int -> Handler (Union '[Int])
-    postInt _ = respond
+    postInt :: User -> Int -> Handler (Union '[IntResponse])
+    postInt _usr n = respond $ IntResponse n
 
-    getHeaderInt :: Handler (Union '[Headers '[Header "Blah" Int] Int])
-    getHeaderInt = respond $ addHeader 1797 17
+--    getHeaderInt :: Handler (Union '[Headers '[Header "Blah" Int] Int])
+--    getHeaderInt = respond $ addHeader 1797 17
 
-    getLogin :: User -> Handler (Union '[Headers '[ Header "Set-Cookie" SetCookie
-                                                  , Header "Set-Cookie" SetCookie ] NoContent])
+    getLogin :: User -> Handler (Union '[ WithStatus 200 (Headers '[ Header "Set-Cookie" SetCookie
+                                                  , Header "Set-Cookie" SetCookie ] NoContent) ])
     getLogin user = do
         maybeApplyCookies <- liftIO $ acceptLogin ccfg jwtCfg user
         case maybeApplyCookies of
-          Just applyCookies -> respond $ applyCookies NoContent
+          Just applyCookies -> respond $ WithStatus @200 $ applyCookies NoContent
           Nothing -> error "cookies failed to apply"
 
-    getLogout :: Handler (Union '[Headers '[ Header "Set-Cookie" SetCookie
-                                           , Header "Set-Cookie" SetCookie ] NoContent])
-    getLogout = respond $ clearSession ccfg NoContent
+    getLogout :: Handler (Union '[ WithStatus 204 (Headers '[ Header "Set-Cookie" SetCookie
+                                           , Header "Set-Cookie" SetCookie ] NoContent)])
+    getLogout = respond $ WithStatus @204 $ clearSession ccfg NoContent
 #endif
 
 -- }}}
