@@ -423,16 +423,30 @@ type API auths
                                              , Header "Set-Cookie" SetCookie ] NoContent)
 
 #if MIN_VERSION_servant_server(0,18,2)
+type APIUVerbLogout = '[WithStatus 204 (Headers '[ Header "Set-Cookie" SetCookie
+                                                 , Header "Set-Cookie" SetCookie
+                                                 ] NoContent)
+                       ]
+
+type APIUVerbLogin = '[WithStatus 200 (Headers '[ Header "Set-Cookie" SetCookie
+                                                , Header "Set-Cookie" SetCookie
+                                                ] NoContent)
+                      ]
+
+type APIUVerbHeader = '[WithStatus 200 (Headers '[ Header "Blah" Int
+                                                 , Header "Set-Cookie" SetCookie
+                                                 , Header "Set-Cookie" SetCookie
+                                                 ] NoContent)
+                       ]
+
 type APIUVerb auths
     = Auth auths User :>
         ( UVerb 'GET '[JSON] '[IntResponse]
        :<|> ReqBody '[JSON] Int :> UVerb 'POST '[JSON] '[IntResponse]
---       :<|> "header" :> UVerb 'GET '[JSON] '[(Headers '[Header "Blah" Int] Int)]
+--       :<|> "header" :> UVerb 'GET '[JSON] APIUVerbHeader
         )
---      :<|> "login" :> ReqBody '[JSON] User :> UVerb 'POST '[JSON] '[(Headers '[ Header "Set-Cookie" SetCookie
---                                                                              , Header "Set-Cookie" SetCookie ] NoContent)]
---      :<|> "logout" :> UVerb 'GET '[JSON] '[(Headers '[ Header "Set-Cookie" SetCookie
---                                                      , Header "Set-Cookie" SetCookie ] NoContent)]
+      :<|> "login" :> ReqBody '[JSON] User :> UVerb 'POST '[JSON] APIUVerbLogin
+      :<|> "logout" :> UVerb 'GET '[JSON] APIUVerbLogout
 #endif
 
 jwtOnlyApi :: Proxy (API '[Servant.Auth.Server.JWT])
@@ -589,8 +603,8 @@ serverUVerb ccfg =
         Indefinite -> throwAll err401
         _ -> throwAll err403
     )
---    :<|> getLogin
---    :<|> getLogout
+    :<|> getLogin
+    :<|> getLogout
   where
     getInt :: User -> Handler (Union '[IntResponse])
     getInt usr = respond . IntResponse . length $ name usr
@@ -598,19 +612,17 @@ serverUVerb ccfg =
     postInt :: User -> Int -> Handler (Union '[IntResponse])
     postInt _usr n = respond $ IntResponse n
 
---    getHeaderInt :: Handler (Union '[Headers '[Header "Blah" Int] Int])
---    getHeaderInt = respond $ addHeader 1797 17
+--    getHeaderInt :: Handler (Union APIUVerbHeader)
+--    getHeaderInt = respond $ WithStatus @200 $ applyCookies $ addHeader 1797 17
 
-    getLogin :: User -> Handler (Union '[ WithStatus 200 (Headers '[ Header "Set-Cookie" SetCookie
-                                                  , Header "Set-Cookie" SetCookie ] NoContent) ])
+    getLogin :: User -> Handler (Union APIUVerbLogin)
     getLogin user = do
         maybeApplyCookies <- liftIO $ acceptLogin ccfg jwtCfg user
         case maybeApplyCookies of
           Just applyCookies -> respond $ WithStatus @200 $ applyCookies NoContent
           Nothing -> error "cookies failed to apply"
 
-    getLogout :: Handler (Union '[ WithStatus 204 (Headers '[ Header "Set-Cookie" SetCookie
-                                           , Header "Set-Cookie" SetCookie ] NoContent)])
+    getLogout :: Handler (Union APIUVerbLogout)
     getLogout = respond $ WithStatus @204 $ clearSession ccfg NoContent
 #endif
 
